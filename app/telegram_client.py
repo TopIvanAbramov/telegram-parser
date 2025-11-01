@@ -45,6 +45,53 @@ class TelegramParserClient:
             await self._client.disconnect()
             logger.info("Disconnected from Telegram")
     
+    async def get_channel_id_by_username(self, channel_username: str) -> int:
+        """Get numeric channel_id from channel username."""
+        await self.connect()
+        channel = await self._client.get_entity(channel_username)
+        return channel.id
+    
+    async def get_comments_count(self, channel_id: int, message_id: int) -> int:
+        """Get total comments count for a message given channel_id and message_id.
+        Returns 0 if unavailable or fails."""
+        try:
+            from telethon import functions
+            await self.connect()
+            channel = await self._client.get_entity(channel_id)
+            result = await self._client(functions.messages.GetRepliesRequest(
+                peer=channel,
+                msg_id=message_id,
+                offset_id=0,
+                offset_date=0,
+                add_offset=0,
+                limit=100,
+                max_id=0,
+                min_id=0,
+                hash=0
+            ))
+            return result.count if result else 0
+        except Exception as e:
+            logger.warning(f"Failed to get comments count: {e}")
+            return 0
+    
+    async def get_reposts_count(self, channel_id: int, message_id: int) -> int:
+        """Get total reposts count for a message given channel_id and message_id.
+        Returns 0 if unavailable or fails."""
+        try:
+            from telethon import functions
+            await self.connect()
+            channel = await self._client.get_entity(channel_id)
+            result = await self._client(functions.stats.GetMessagePublicForwardsRequest(
+                channel=channel,
+                msg_id=message_id,
+                offset='',
+                limit=100
+            ))
+            return result.count if result else 0
+        except Exception as e:
+            logger.warning(f"Failed to get reposts count: {e}")
+            return 0
+    
     @staticmethod
     def parse_post_url(url: str) -> tuple[str, int]:
         """
@@ -95,8 +142,11 @@ class TelegramParserClient:
         await self.connect()
         
         try:
-            # Get the message/post
-            messages = await self._client.get_messages(channel, ids=[message_id])
+            # Get channel_id from username
+            channel_id = await self.get_channel_id_by_username(channel)
+            
+            # Get the message/post using channel_id and message_id
+            messages = await self._client.get_messages(channel_id, ids=[message_id])
             
             if not messages or messages[0] is None:
                 logger.error(f"Post not found: {url}")
@@ -104,33 +154,43 @@ class TelegramParserClient:
             
             message = messages[0]
             
+            # Get channel entity for channel info
+            channel_entity = await self._client.get_entity(channel_id)
+            
             # Extract statistics
             views = message.views or 0
             
-            # Get reactions
-            reactions = {}
-            total_reactions = 0
+            # Get comments count (defaults to 0 if fails)
+            comments = await self.get_comments_count(channel_id, message_id)
             
-            if message.reactions:
-                for reaction in message.reactions.results:
-                    if hasattr(reaction, 'count') and reaction.count > 0:
-                        emoji = str(reaction.reaction) if hasattr(reaction, 'reaction') else 'unknown'
-                        reactions[emoji] = reaction.count
-                        total_reactions += reaction.count
+            # Get reposts count (defaults to 0 if fails)
+            reposts = await self.get_reposts_count(channel_id, message_id)
+            
+            # Get channel information
+            channel_name = getattr(channel_entity, 'title', None) or getattr(channel_entity, 'first_name', None) or channel
+            channel_username = getattr(channel_entity, 'username', None) or channel
+            channel_thumbnail = None
+            if hasattr(channel_entity, 'photo') and channel_entity.photo:
+                # Get photo file location if available
+                if hasattr(channel_entity.photo, 'photo_id'):
+                    channel_thumbnail = f"https://t.me/i/userpic/320/{channel_username}.jpg"
             
             # Prepare result
             result = {
                 "success": True,
-                "channel": channel,
+                "channel": channel_username,
+                "channel_id": channel_id,
+                "channel_username": channel_username,
+                "channel_name": channel_name,
+                "channel_thumbnail": channel_thumbnail,
                 "message_id": message_id,
                 "views": views,
-                "reactions": reactions,
-                "total_reactions": total_reactions,
+                "comments": comments,
+                "reposts": reposts,
                 "message_date": message.date.isoformat() if message.date else None,
-                "has_reactions": len(reactions) > 0
             }
             
-            logger.info(f"Successfully parsed post: {channel}/{message_id}")
+            logger.info(f"Successfully parsed post: {channel_username}/{message_id} (channel_id: {channel_id})")
             return result
             
         except MsgIdInvalidError:

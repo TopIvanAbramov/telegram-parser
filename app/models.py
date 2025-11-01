@@ -10,10 +10,16 @@ class PostParseResponse(BaseModel):
     
     success: bool = True
     channel: str
+    channel_id: int
+    channel_username: str
+    channel_name: Optional[str] = None
+    channel_thumbnail: Optional[str] = None
     message_id: int
     views: int
     reactions: Dict[str, int] = {}
     total_reactions: int = 0
+    comments: int = 0
+    reposts: int = 0
     message_date: Optional[str] = None
     has_reactions: bool = False
 
