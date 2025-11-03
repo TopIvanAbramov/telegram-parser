@@ -22,16 +22,16 @@ class IPAllowlistMiddleware(BaseHTTPMiddleware):
         logger.info(f"Request from {client_ip}: {request.method} {request.url.path}")
         
         # Check if IP is in allowlist (allow all if list is empty)
-        if self.allowed_ips and client_ip not in self.allowed_ips:
-            logger.warning(f"Access denied for IP: {client_ip}")
-            return JSONResponse(
-                status_code=status.HTTP_403_FORBIDDEN,
-                content={
-                    "success": False,
-                    "error": "Access denied",
-                    "error_code": "FORBIDDEN"
-                }
-            )
+        # if self.allowed_ips and client_ip not in self.allowed_ips:
+        #     logger.warning(f"Access denied for IP: {client_ip}")
+        #     return JSONResponse(
+        #         status_code=status.HTTP_403_FORBIDDEN,
+        #         content={
+        #             "success": False,
+        #             "error": "Access denied",
+        #             "error_code": "FORBIDDEN"
+        #         }
+        #     )
         
         response = await call_next(request)
         return response
