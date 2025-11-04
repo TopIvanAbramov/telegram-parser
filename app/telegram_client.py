@@ -12,6 +12,8 @@ from telethon.errors import (
     MessageNotModifiedError,
     UnauthorizedError
 )
+from telethon import functions, types
+from io import BytesIO
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +57,6 @@ class TelegramParserClient:
         """Get total comments count for a message given channel_id and message_id.
         Returns 0 if unavailable or fails."""
         try:
-            from telethon import functions
             await self.connect()
             channel = await self._client.get_entity(channel_id)
             result = await self._client(functions.messages.GetRepliesRequest(
@@ -78,7 +79,6 @@ class TelegramParserClient:
         """Get total reposts count for a message given channel_id and message_id.
         Returns 0 if unavailable or fails."""
         try:
-            from telethon import functions
             await self.connect()
             channel = await self._client.get_entity(channel_id)
             result = await self._client(functions.stats.GetMessagePublicForwardsRequest(
@@ -91,6 +91,37 @@ class TelegramParserClient:
         except Exception as e:
             logger.warning(f"Failed to get reposts count: {e}")
             return 0
+
+    async def get_channel_subscribers_safe(self, channel_id: int) -> int | None:
+        """Try to fetch channel subscribers count. Returns None if unavailable."""
+        try:
+            await self.connect()
+            channel = await self._client.get_entity(channel_id)
+            # Get full channel info
+            full = await self._client(functions.channels.GetFullChannelRequest(channel))
+            # participants_count may be under full.full_chat.participants_count
+            count = getattr(getattr(full, 'full_chat', None), 'participants_count', None)
+            return int(count) if count is not None else None
+        except Exception as e:
+            logger.warning(f"Failed to get channel subscribers: {e}")
+            return None
+
+    async def get_post_photo_bytes(self, channel_id: int, message_id: int) -> bytes | None:
+        """Download the best available photo from a post, return bytes or None."""
+        try:
+            await self.connect()
+            messages = await self._client.get_messages(channel_id, ids=[message_id])
+            if not messages or messages[0] is None:
+                return None
+            message = messages[0]
+            if not getattr(message, 'photo', None):
+                return None
+            bio = BytesIO()
+            await self._client.download_media(message.photo, file=bio)
+            return bio.getvalue()
+        except Exception as e:
+            logger.warning(f"Failed to download post photo: {e}")
+            return None
     
     @staticmethod
     def parse_post_url(url: str) -> tuple[str, int]:
@@ -174,6 +205,15 @@ class TelegramParserClient:
                 # Get photo file location if available
                 if hasattr(channel_entity.photo, 'photo_id'):
                     channel_thumbnail = f"https://t.me/i/userpic/320/{channel_username}.jpg"
+
+            # Get channel subscribers if possible
+            channel_subscribers = await self.get_channel_subscribers_safe(channel_id)
+
+            # Check if post has photo
+            post_photo_available = bool(getattr(message, 'photo', None))
+            post_photo_id = None
+            if post_photo_available and isinstance(message.photo, types.Photo):
+                post_photo_id = str(getattr(message.photo, 'id', ''))
             
             # Prepare result
             result = {
@@ -183,11 +223,14 @@ class TelegramParserClient:
                 "channel_username": channel_username,
                 "channel_name": channel_name,
                 "channel_thumbnail": channel_thumbnail,
+                "channel_subscribers": channel_subscribers,
                 "message_id": message_id,
                 "views": views,
                 "comments": comments,
                 "reposts": reposts,
                 "message_date": message.date.isoformat() if message.date else None,
+                "post_photo_available": post_photo_available,
+                "post_photo_id": post_photo_id,
             }
             
             logger.info(f"Successfully parsed post: {channel_username}/{message_id} (channel_id: {channel_id})")

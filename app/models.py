@@ -14,6 +14,7 @@ class PostParseResponse(BaseModel):
     channel_username: str
     channel_name: Optional[str] = None
     channel_thumbnail: Optional[str] = None
+    channel_subscribers: Optional[int] = None
     message_id: int
     views: int
     reactions: Dict[str, int] = {}
@@ -22,6 +23,8 @@ class PostParseResponse(BaseModel):
     reposts: int = 0
     message_date: Optional[str] = None
     has_reactions: bool = False
+    post_photo_available: bool = False
+    post_photo_id: Optional[str] = None
 
 
 class ErrorResponse(BaseModel):

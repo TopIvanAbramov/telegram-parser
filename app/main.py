@@ -4,7 +4,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query, HTTPException, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from app.telegram_client import telegram_parser
 from app.models import PostParseResponse, ErrorResponse
@@ -145,4 +145,36 @@ async def parse_telegram_post(url: str = Query(..., description="Telegram post U
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=error_response.dict()
         )
+
+
+@app.get("/parse/telegram/post-photo")
+async def get_post_photo(url: str = Query(..., description="Telegram post URL")):
+    """Return the best available photo for a Telegram post as binary image/jpeg.
+
+    Returns 404 if no photo is available.
+    """
+    try:
+        # Parse first to resolve channel_id/message_id and validate access
+        parsed = await telegram_parser.parse_post(url)
+        channel_id = parsed.get("channel_id")
+        message_id = parsed.get("message_id")
+
+        data = await telegram_parser.get_post_photo_bytes(channel_id, message_id)
+        if not data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={
+                "success": False,
+                "error": "No photo available for this post",
+                "error_code": "NO_PHOTO"
+            })
+
+        return Response(content=data, media_type="image/jpeg")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to return post photo: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail={
+            "success": False,
+            "error": "Failed to retrieve post photo",
+            "error_code": "INTERNAL_ERROR"
+        })
 
